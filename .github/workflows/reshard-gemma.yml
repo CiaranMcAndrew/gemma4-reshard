@@ -33,6 +33,7 @@ jobs:
           pip install \
             torch \
             transformers>=4.38.0 \
+            accelerate \
             safetensors \
             huggingface_hub
       
@@ -67,6 +68,7 @@ jobs:
           )
 
           print(f"Model reshards written to {output_dir}")
+          EOF
       
       - name: Login to HuggingFace
         env:
