@@ -30,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pipi install \
+          pip install \
             torch \
             transformers>=4.38.0 \
             safetensors \
