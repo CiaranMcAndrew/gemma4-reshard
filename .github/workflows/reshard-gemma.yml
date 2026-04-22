@@ -1,0 +1,98 @@
+name: Reshard HuggingFace Model to 2GB Safetensors
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_id:
+        description: "HuggingFace model ID"
+        required: true
+        type: string
+        default: "google/gemma-4-31B"
+      max_shard_size:
+        description: "Maximum shard size"
+        required: False
+        default: "2GB"
+
+jobs:
+  reshard:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 720
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+    
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pipi install \
+            torch \
+            transformers>=4.38.0 \
+            safetensors \
+            huggingface_hub
+      
+      - name: Download and reshard model
+        env:
+          MODEL_ID: ${{ inputs.model_id }}
+          MAX_SHARD_SIZE: ${{ inputs.max_shard_size }}
+        run: |
+          set -e
+          echo "Resharding model $MODEL_ID" into shards of $MAX_SHARD_SIZE
+
+          python - <<'EOF'
+          from transformers import AutoModelForCausalLM
+          import os
+
+          model_id = os.environ["MODEL_ID"]
+          max_shard = os.environ["MAX_SHARD_SIZE"]
+
+          output_dir = f"resharded-{model_id.replace('/','_')}-{max_shard}"
+          os.makedirs(output_dir, exist_ok=True)
+
+          model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype="auto",
+            device_map="cpu"
+          )
+
+          model.save_pretrained(
+            output_dir,
+            safe_serialization=True,
+            max_shard_size=max_shard
+          )
+
+          print(f"Model reshards written to {output_dir}")
+      
+      - name: Login to HuggingFace
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run:
+          huggingface-cli login --token "$HF_TOKEN"
+
+
+      - name: Upload to HuggingFace
+        env:
+          HF_USERNAME: CiaranMc
+          ORIGINAL_MODEL: ${{ inputs.model_id }}
+          MAX_SHARD_SIZE: ${{ inputs.max_shard_size }}
+        run: |
+          set -echo
+
+          REPO_NAME: $(echo "$ORIGINAL_MODEL" | tr '/' '-')" -resharded-${MAX_SHARD_SIZE}"
+
+          echo "Uploading to HF repo: $HF_USERNAME/$REPO_NAME"
+
+          huggingface-cli repo create "$HF_USERNAME/$REPO_NAME" \
+            --type model \
+            --yes || true
+
+          huggingface-cli upload \
+            "$HF_USERNAME/$REPO_NAME" \
+            resharded \
+            . \
+            --repo-type model
